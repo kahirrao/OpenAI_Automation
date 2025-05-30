@@ -4,10 +4,12 @@ import json
 import os
 from dotenv import load_dotenv
 import threading
-import time
 import librosa
 import soundfile as sf
-import os
+import io
+import sunau
+import aifc
+
 import base64
 
 # Load environment variables from .env file
@@ -41,6 +43,7 @@ class OpenAIRealtimeClient:
         self.close_event = threading.Event() # For signaling final closure
 
         self._ws_thread = None # To hold the WebSocket thread
+        self.latest_received_message = None
 
     def on_message(self, ws, message):
         """
@@ -51,6 +54,7 @@ class OpenAIRealtimeClient:
 
         try:
             data = json.loads(message)
+            self.latest_received_message = data  # <-- Add this line
             msg_type = data.get("type")
             
             if msg_type == "session.created":
@@ -192,43 +196,47 @@ class OpenAIRealtimeClient:
         return True
 
     def send_session_update_and_wait_for_updated(self, timeout=10):
-        """
-        Constructs and sends the session.update event to the WebSocket,
-        then waits for the session.updated response.
-        Returns True on success, False on failure or timeout.
-        """
-        if not self.is_connected:
-            print("Error: Not connected to WebSocket. Cannot send update.")
-            return False
+            """
+            Constructs and sends the session.update event to the WebSocket,
+            then waits for the session.updated response.
+            Returns event_id on success, None on failure or timeout.
+            """
+            if not self.is_connected:
+                print("Error: Not connected to WebSocket. Cannot send update.")
+                return None
 
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        # Updated path to include 'session_events' subdirectory
-        data_file_path = os.path.join(script_dir, '..', 'data', 'session_events', 'session_update.json')
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            data_file_path = os.path.join(script_dir, '..', 'data', 'session_events', 'session_update.json')
 
-        update_payload = {}
-        try:
-            # Load the payload from the JSON file
-            with open(data_file_path, 'r') as f:
-                update_payload = json.load(f)
-            json_payload = json.dumps(update_payload)
-            self.ws.send(json_payload)
-            print(f"\n--- Sent 'session.update' event ---")
-            print(json_payload)
-        except Exception as e:
-            print(f"Failed to send 'session.update' event: {e}")
-            return False
+            update_payload = {}
+            try:
+                with open(data_file_path, 'r') as f:
+                    update_payload = json.load(f)
+                json_payload = json.dumps(update_payload)
+                self.ws.send(json_payload)
+                print(f"\n--- Sent 'session.update' event ---")
+                print(json_payload)
+            except Exception as e:
+                print(f"Failed to send 'session.update' event: {e}")
+                return None
 
-        print(f"Waiting for 'session.updated' event (timeout: {timeout}s)...")
-        if not self.session_updated_event.wait(timeout=timeout):
-            print("Error: 'session.updated' event not received in time.")
-            return False
-        
-        if not self.is_connected: # Check if connection is still active after receiving event
-            print("Error: Connection closed after receiving 'session.updated'.")
-            return False
-
-        print("Successfully sent 'session.update' and received 'session.updated'.")
-        return True
+            print(f"Waiting for 'session.updated' event (timeout: {timeout}s)...")
+            if not self.session_updated_event.wait(timeout=timeout):
+                print("Error: 'session.updated' event not received in time.")
+                return None
+            if not self.is_connected:
+                print("Error: Connection closed after receiving 'session.updated'.")
+                return None
+            # Extract event_id from the latest received message
+            event_id = None
+            if hasattr(self, "latest_received_message") and self.latest_received_message:
+                event_id = self.latest_received_message.get("event_id")
+            if event_id:
+                print(f"Successfully sent 'session.update' and received 'session.updated'. Event ID: {event_id}")
+                return event_id
+            else:
+                print("session.updated received but event_id not found in latest_received_message.")
+                return None
 
     def close_connection(self):
         """
@@ -252,103 +260,135 @@ class OpenAIRealtimeClient:
                 print("Warning: WebSocket thread did not terminate gracefully.")
         print("Connection cleanup complete.")
 
-def process_audio_to_base64(input_file, output_dir=None):
+    def process_audio_to_base64(self, input_file, output_dir=None):
     # ... (same code as before) ...
-    try:
-        # --- Step 1: Convert to PCM INT16 WAV in memory ---
-        audio, sr = librosa.load(input_file, sr=16000, mono=True)
+        try:
+            # --- Step 1: Convert to PCM INT16 WAV in memory ---
+            audio, sr = librosa.load(input_file, sr=16000, mono=True)
+            base_filename = os.path.splitext(os.path.basename(input_file))[0]  
+            if output_dir:
+                os.makedirs(output_dir, exist_ok=True) 
+                output_pcm16_path = os.path.join(output_dir, f"{base_filename}_pcm16.wav")
+                output_base64_path = os.path.join(output_dir, f"{base_filename}_base64.txt")
+            else:
+                input_dir = os.path.dirname(input_file) if os.path.dirname(input_file) else os.getcwd()
+                output_pcm16_path = os.path.join(input_dir, f"{base_filename}_pcm16.wav")
+                output_base64_path = os.path.join(input_dir, f"{base_filename}_base64.txt")
+            sf.write(output_pcm16_path, audio, sr, subtype='PCM_16')
 
-        base_filename = os.path.splitext(os.path.basename(input_file))[0]
-        
-        if output_dir:
-            os.makedirs(output_dir, exist_ok=True) 
-            output_pcm16_path = os.path.join(output_dir, f"{base_filename}_pcm16.wav")
-            output_base64_path = os.path.join(output_dir, f"{base_filename}_base64.txt")
-        else:
-            input_dir = os.path.dirname(input_file) if os.path.dirname(input_file) else os.getcwd()
-            output_pcm16_path = os.path.join(input_dir, f"{base_filename}_pcm16.wav")
-            output_base64_path = os.path.join(input_dir, f"{base_filename}_base64.txt")
+            # --- Step 2: Convert PCM16 WAV file to Base64 encoded string ---
+            with open(output_pcm16_path, 'rb') as file:
+                wav_bytes = file.read()
+                base64_encoded = base64.b64encode(wav_bytes).decode('utf-8')
+            # --- Step 3: Save Base64 to file (optional) ---
+            if output_dir: 
+                with open(output_base64_path, 'w') as f:
+                    f.write(base64_encoded)
+            return base64_encoded
 
-        sf.write(output_pcm16_path, audio, sr, subtype='PCM_16')
-
-        # --- Step 2: Convert PCM16 WAV file to Base64 encoded string ---
-        with open(output_pcm16_path, 'rb') as file:
-            wav_bytes = file.read()
-            base64_encoded = base64.b64encode(wav_bytes).decode('utf-8')
-
-        # --- Step 3: Save Base64 to file (optional) ---
-        if output_dir: 
-            with open(output_base64_path, 'w') as f:
-                f.write(base64_encoded)
-
-        return base64_encoded
-
-    except FileNotFoundError:
-        print(f"Error: Input file not found at {input_file}")
-        return None
-    except Exception as e:
-        print(f"An unexpected error occurred during audio processing: {str(e)}")
-        return None
+        except FileNotFoundError:
+                print(f"Error: Input file not found at {input_file}")
+                return None
+        except Exception as e:
+                print(f"An unexpected error occurred during audio processing: {str(e)}")
+                return None
 
 # --- Existing function: get_audio_base64_from_data_folder ---
-def get_audio_base64_from_data_folder(audio_filename, save_processed_files=False):
-    # ... (same code as before) ...
-    project_root = os.getcwd()
-    data_folder_path = os.path.join(project_root, "data", "audio")
-    input_audio_path = os.path.join(data_folder_path, audio_filename)
+    def get_audio_base64_from_data_folder(self, audio_filename, save_processed_files=False):
+        # ... (same code as before) ...
+        project_root = os.getcwd()
+        data_folder_path = os.path.join(project_root, "data", "audio")
+        input_audio_path = os.path.join(data_folder_path, audio_filename)
 
-    output_sub_dir = None
-    if save_processed_files:
-        output_sub_dir = os.path.join(data_folder_path, "audio")
-        os.makedirs(output_sub_dir, exist_ok=True) 
+        output_sub_dir = None
+        if save_processed_files:
+            output_sub_dir = os.path.join(data_folder_path, "audio")
+            os.makedirs(output_sub_dir, exist_ok=True) 
 
-    base64_string = process_audio_to_base64(input_audio_path, output_dir=output_sub_dir if save_processed_files else None)
-    
-    if base64_string:
-        print(f"Successfully obtained Base64 for {audio_filename}.")
-    else:
-        print(f"Failed to obtain Base64 for {audio_filename}.")
+        base64_string = self.process_audio_to_base64(input_audio_path, output_dir=output_sub_dir if save_processed_files else None)
         
-    return base64_string
+        if base64_string:
+            print(f"Successfully obtained Base64 for {audio_filename}.")
+        else:
+            print(f"Failed to obtain Base64 for {audio_filename}.")
+        return base64_string
 
-def get_audio_base64_from_file(input_file_path):
-    """
-    Converts any audio file to PCM INT16 format (16kHz, mono) in memory,
-    and then returns the Base64 encoded string of this PCM INT16 audio.
 
-    Args:
-        input_file_path (str): Path to the input audio file (e.g., .mp3, .wav, .ogg).
+    def send_audio_buffer_and_validate_speech_started(self, event_id, audio_data_base64):    
+        """
+        Constructs and sends an 'input_audio_buffer.append' event to the WebSocket.
+        Immediately attempts to validate the last received message as 'speech_started'
+        and stores key data globally and in the instance.
 
-    Returns:
-        str or None: The Base64 encoded string of the PCM INT16 audio,
-                     or None if an error occurs (e.g., file not found, audio processing error).
-    """
-    try:
-        # Step 1: Load the audio file and convert to 16kHz, mono
-        print(f"Loading and resampling '{os.path.basename(input_file_path)}' to 16kHz, mono...")
-        audio_data, sample_rate = librosa.load(input_file_path, sr=16000, mono=True)
-        print("Audio loaded and resampled.")
+        Returns True on success, False on failure.
+        """
+        if not self.is_connected:
+            print("Error: Not connected to WebSocket. Cannot send audio buffer.")
+            return False
 
-        # Step 2: Convert audio data to PCM INT16 bytes in memory
-        # Use a BytesIO object to simulate a file in memory
-        buffer = io.BytesIO()
-        # Write the audio data to the in-memory buffer as PCM_16 WAV
-        sf.write(buffer, audio_data, sample_rate, subtype='PCM_16', format='WAV')
-        buffer.seek(0) # Rewind the buffer to the beginning
+        request_body = {
+            "event_id": event_id,
+            "type": "input_audio_buffer.append",
+            "audio": audio_data_base64
+        }
 
-        # Step 3: Read the bytes from the buffer and Base64 encode them
-        wav_bytes = buffer.read()
-        base64_encoded_string = base64.b64encode(wav_bytes).decode('utf-8')
-        
-        print(f"Successfully converted '{os.path.basename(input_file_path)}' to Base64 (PCM INT16).")
-        return base64_encoded_string
+        try:
+            json_payload = json.dumps(request_body)
+            self.ws.send(json_payload)
+            print(f"\n--- Sent 'input_audio_buffer.append' event ---")
+            # For display, truncate the audio data
+            display_payload = request_body.copy()
+            display_payload["audio"] = display_payload["audio"][:100] + "..." if len(display_payload["audio"]) > 100 else display_payload["audio"]
+            print(json.dumps(display_payload, indent=2))
+        except Exception as e:
+            print(f"Failed to send 'input_audio_buffer.append' event: {e}")
+            return False
 
-    except FileNotFoundError:
-        print(f"Error: Input file not found at '{input_file_path}'.")
-        return None
-    except Exception as e:
-        print(f"An error occurred during audio processing or Base64 encoding: {str(e)}")
-        return None
+        # Directly attempt to validate the 'latest_received_message'
+        # This assumes your _simulate_server_response (or real on_message)
+        # has already processed and stored the incoming message.
+        if self.latest_received_message and self.latest_received_message.get("type") == "input_audio_buffer.speech_started":
+            response_data = self.latest_received_message
+            self.latest_received_message = None # Clear after processing
+
+            required_keys = ["type", "event_id", "item_id"]
+
+            # 1. Validate that all required keys are present
+            for key in required_keys:
+                if key not in response_data:
+                    print(f"Validation Error: Missing key '{key}' in response.")
+                    return False
+
+            # 2. Validate data types
+            if not isinstance(response_data["type"], str):
+                print(f"Validation Error: 'type' is not a string.")
+                return False
+            if not isinstance(response_data["event_id"], str):
+                print(f"Validation Error: 'event_id' is not a string.")
+                return False
+            if not isinstance(response_data["item_id"], str):
+                print(f"Validation Error: 'item_id' is not a string.")
+                return False
+
+            # 3. Store in global variables
+            global GLOBAL_RESPONSE_TYPE
+            global GLOBAL_RESPONSE_EVENT_ID
+            global GLOBAL_RESPONSE_ITEM_ID
+            GLOBAL_RESPONSE_TYPE = response_data["type"]
+            GLOBAL_RESPONSE_EVENT_ID = response_data["event_id"]
+            GLOBAL_RESPONSE_ITEM_ID = response_data["item_id"]
+
+            # 4. Store in class instance (recommended)
+            self.audio_buffer_response_data = response_data
+
+            print(f"Successfully validated and stored 'input_audio_buffer.speech_started' data.")
+            print(f"  GLOBAL_RESPONSE_TYPE: {GLOBAL_RESPONSE_TYPE}")
+            print(f"  GLOBAL_RESPONSE_EVENT_ID: {GLOBAL_RESPONSE_EVENT_ID}")
+            print(f"  GLOBAL_RESPONSE_ITEM_ID: {GLOBAL_RESPONSE_ITEM_ID}")
+            return True
+        else:
+            print("Error: Expected 'input_audio_buffer.speech_started' response not found or invalid.")
+            return False
 
 # Example of how you might run it directly (for testing without pytest)
 if __name__ == "__main__":
