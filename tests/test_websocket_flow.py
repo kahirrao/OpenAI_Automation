@@ -1,8 +1,8 @@
 # test_websocket_flow.py
 import pytest
-# import sys
-# import os
-# sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+import sys
+import os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from src.openai_client import OpenAIRealtimeClient, URL, HEADERS
 import time
 
