@@ -2,8 +2,10 @@
 import pytest
 import sys
 import os
+import aifc
+import sunau
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from src.openai_client import OpenAIRealtimeClient, URL, HEADERS
+from src.openai_client import OpenAIRealtimeClient, URL, HEADERS, get_audio_base64_from_data_folder
 import time
 
 # A pytest fixture to provide a client instance and ensure cleanup
@@ -48,3 +50,11 @@ def test_websocket_session_flow(openai_realtime_client):
     # assert "You are a helpful assistant." in client.last_received_session_instructions 
     
     print("\n--- Test Passed: WebSocket session flow completed successfully ---")
+
+    # Step 3: Generate base64 audio from a file
+    audio_filename = "answer_5_20250324_192921_pcm16.wav"  # Place your file in data/audio/
+    base64_audio = client.get_audio_base64_from_data_folder(audio_filename, save_processed_files=True)
+    assert base64_audio is not None, "Failed to generate base64 string from audio file"
+    print("Base64 audio string (first 100 chars):", base64_audio[:100])
+
+

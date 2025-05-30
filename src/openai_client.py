@@ -5,6 +5,10 @@ import os
 from dotenv import load_dotenv
 import threading
 import time
+import librosa
+import soundfile as sf
+import os
+import base64
 
 # Load environment variables from .env file
 load_dotenv()
@@ -247,6 +251,104 @@ class OpenAIRealtimeClient:
             if self._ws_thread.is_alive():
                 print("Warning: WebSocket thread did not terminate gracefully.")
         print("Connection cleanup complete.")
+
+def process_audio_to_base64(input_file, output_dir=None):
+    # ... (same code as before) ...
+    try:
+        # --- Step 1: Convert to PCM INT16 WAV in memory ---
+        audio, sr = librosa.load(input_file, sr=16000, mono=True)
+
+        base_filename = os.path.splitext(os.path.basename(input_file))[0]
+        
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True) 
+            output_pcm16_path = os.path.join(output_dir, f"{base_filename}_pcm16.wav")
+            output_base64_path = os.path.join(output_dir, f"{base_filename}_base64.txt")
+        else:
+            input_dir = os.path.dirname(input_file) if os.path.dirname(input_file) else os.getcwd()
+            output_pcm16_path = os.path.join(input_dir, f"{base_filename}_pcm16.wav")
+            output_base64_path = os.path.join(input_dir, f"{base_filename}_base64.txt")
+
+        sf.write(output_pcm16_path, audio, sr, subtype='PCM_16')
+
+        # --- Step 2: Convert PCM16 WAV file to Base64 encoded string ---
+        with open(output_pcm16_path, 'rb') as file:
+            wav_bytes = file.read()
+            base64_encoded = base64.b64encode(wav_bytes).decode('utf-8')
+
+        # --- Step 3: Save Base64 to file (optional) ---
+        if output_dir: 
+            with open(output_base64_path, 'w') as f:
+                f.write(base64_encoded)
+
+        return base64_encoded
+
+    except FileNotFoundError:
+        print(f"Error: Input file not found at {input_file}")
+        return None
+    except Exception as e:
+        print(f"An unexpected error occurred during audio processing: {str(e)}")
+        return None
+
+# --- Existing function: get_audio_base64_from_data_folder ---
+def get_audio_base64_from_data_folder(audio_filename, save_processed_files=False):
+    # ... (same code as before) ...
+    project_root = os.getcwd()
+    data_folder_path = os.path.join(project_root, "data", "audio")
+    input_audio_path = os.path.join(data_folder_path, audio_filename)
+
+    output_sub_dir = None
+    if save_processed_files:
+        output_sub_dir = os.path.join(data_folder_path, "audio")
+        os.makedirs(output_sub_dir, exist_ok=True) 
+
+    base64_string = process_audio_to_base64(input_audio_path, output_dir=output_sub_dir if save_processed_files else None)
+    
+    if base64_string:
+        print(f"Successfully obtained Base64 for {audio_filename}.")
+    else:
+        print(f"Failed to obtain Base64 for {audio_filename}.")
+        
+    return base64_string
+
+def get_audio_base64_from_file(input_file_path):
+    """
+    Converts any audio file to PCM INT16 format (16kHz, mono) in memory,
+    and then returns the Base64 encoded string of this PCM INT16 audio.
+
+    Args:
+        input_file_path (str): Path to the input audio file (e.g., .mp3, .wav, .ogg).
+
+    Returns:
+        str or None: The Base64 encoded string of the PCM INT16 audio,
+                     or None if an error occurs (e.g., file not found, audio processing error).
+    """
+    try:
+        # Step 1: Load the audio file and convert to 16kHz, mono
+        print(f"Loading and resampling '{os.path.basename(input_file_path)}' to 16kHz, mono...")
+        audio_data, sample_rate = librosa.load(input_file_path, sr=16000, mono=True)
+        print("Audio loaded and resampled.")
+
+        # Step 2: Convert audio data to PCM INT16 bytes in memory
+        # Use a BytesIO object to simulate a file in memory
+        buffer = io.BytesIO()
+        # Write the audio data to the in-memory buffer as PCM_16 WAV
+        sf.write(buffer, audio_data, sample_rate, subtype='PCM_16', format='WAV')
+        buffer.seek(0) # Rewind the buffer to the beginning
+
+        # Step 3: Read the bytes from the buffer and Base64 encode them
+        wav_bytes = buffer.read()
+        base64_encoded_string = base64.b64encode(wav_bytes).decode('utf-8')
+        
+        print(f"Successfully converted '{os.path.basename(input_file_path)}' to Base64 (PCM INT16).")
+        return base64_encoded_string
+
+    except FileNotFoundError:
+        print(f"Error: Input file not found at '{input_file_path}'.")
+        return None
+    except Exception as e:
+        print(f"An error occurred during audio processing or Base64 encoding: {str(e)}")
+        return None
 
 # Example of how you might run it directly (for testing without pytest)
 if __name__ == "__main__":

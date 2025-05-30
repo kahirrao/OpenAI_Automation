@@ -1,7 +1,0 @@
-{
-    "python.testing.pytestArgs": [
-        "archive"
-    ],
-    "python.testing.unittestEnabled": false,
-    "python.testing.pytestEnabled": true
-}
