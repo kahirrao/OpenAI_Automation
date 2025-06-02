@@ -68,9 +68,80 @@ def test_websocket_session_flow(openai_realtime_client):
         print("Latest received message:", getattr(client, "latest_received_message", None))
         time.sleep(5)  # Give the server a moment to respond, if needed
         print("Latest received message after wait:", getattr(client, "latest_received_message", None))
+        # Handle failure case - perhaps skip further steps or exit
+        transcript = None
+        item_id = None
     else:
         # Store the transcript from the completed transcription event
         transcript = commit_responses.get("conversation.item.input_audio_transcription.completed", {}).get("transcript")
-        print("Final transcript:",  )
+        print("Final transcript:", transcript)
+        item_id = commit_responses.get("conversation.item.input_audio_transcription.completed", {}).get("item_id")
+        print("Item ID:", item_id)
 # ...existing code...
 
+
+   # Step 6: Send audio buffer clear event and validate response
+    print("\n--- Test Step 6: Sending input_audio_buffer.clear and validating response ---")
+    clear_event_id = f"event_{int(time.time())}"  # Generate a unique event ID
+    clear_response = client.send_audio_buffer_clear_and_validate(clear_event_id, timeout=10)
+        
+    if not clear_response:
+        print("Failed to clear audio buffer or validate response")
+        print("Latest received message:", getattr(client, "latest_received_message", None))
+        time.sleep(2)  # Give some time for any delayed messages
+        print("Latest received message after wait:", getattr(client, "latest_received_message", None))
+    else:
+        print(f"Successfully cleared audio buffer with response type: {clear_response.get('type')}")
+        print(f"Clear response event ID: {clear_response.get('event_id')}")
+        assert clear_response.get("type") == "input_audio_buffer.cleared", "Unexpected response type"
+            
+    # Only proceed with item retrieval if we have an item_id from previous steps
+    # Step 7: Send conversation item retrieve event and validate response
+    print("\n--- Test Step 7: Retrieving conversation item and validating response ---")
+    retrieve_event_id = f"event_{int(time.time())}"  # Generate a unique event ID
+    retrieve_response = client.send_conversation_item_retrieve_and_validate(retrieve_event_id, item_id, timeout=10)
+            
+    if not retrieve_response:
+        print("Failed to retrieve conversation item or validate response")
+        print("Latest received message:", getattr(client, "latest_received_message", None))
+        time.sleep(2)  # Give some time for any delayed messages
+        print("Latest received message after wait:", getattr(client, "latest_received_message", None))
+    else:
+        print(f"Successfully retrieved conversation item with response type: {retrieve_response.get('type')}")
+        print(f"Retrieved item ID: {retrieve_response.get('item_id')}")
+        print(f"Retrieved transcript: {retrieve_response.get('transcript')[:100]}..." 
+            if retrieve_response.get('transcript') and len(retrieve_response.get('transcript')) > 100 
+            else f"Retrieved transcript: {retrieve_response.get('transcript')}")
+                
+                # Assertions to validate the response
+    assert retrieve_response.get("type") == "conversation.item.retrieved", "Unexpected response type"
+    assert retrieve_response.get("item_id") == item_id, "Item ID mismatch"
+    assert retrieve_response.get("transcript") is not None, "No transcript in retrieved item"
+                
+                # Verify transcript matches what we received earlier (if applicable)
+    if transcript:
+        assert retrieve_response.get("transcript").strip() == transcript.strip(), "Transcript mismatch between commit and retrieve"
+                
+    # Step 8: Send conversation item delete event and validate response
+    print("\n--- Test Step 8: Deleting conversation item and validating response ---")
+    delete_event_id = f"event_{int(time.time())}"  # Generate a unique event ID
+    delete_response = client.send_conversation_item_delete_and_validate(delete_event_id, item_id,timeout=10)
+                
+    if not delete_response:
+        print("Failed to delete conversation item or validate response")
+        print("Latest received message:", getattr(client, "latest_received_message", None))
+        time.sleep(2)  # Give some time for any delayed messages
+        print("Latest received message after wait:", getattr(client, "latest_received_message", None))
+    else:
+        print(f"Successfully deleted conversation item with response type: {delete_response.get('type')}")
+        print(f"Delete response event ID: {delete_response.get('event_id')}")
+        print(f"Deleted item ID: {delete_response.get('item_id')}")                   
+                    # Assertions to validate the response
+        assert delete_response.get("type") == "conversation.item.deleted", "Unexpected response type"
+        assert delete_response.get("item_id") == item_id, "Item ID mismatch in delete response"
+                    
+        print("All websocket operations completed successfully!")
+    
+    # # Test complete - close the connection
+    # print("\n--- Closing WebSocket connection ---")
+    # client.close_connection()

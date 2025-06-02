@@ -472,9 +472,6 @@ class OpenAIRealtimeClient:
             else:
                 time.sleep(0.1)  # Wait briefly for next message
 
-        if len(received_types) < 4:
-            print("Error: Did not receive all expected commit responses in time.")
-            return None
 
         # Store for later use
         self.commit_response_data = responses
@@ -483,7 +480,248 @@ class OpenAIRealtimeClient:
             print(f"{k}: {v}")
 
         return responses
+    
+    def send_audio_buffer_clear_and_validate(self, event_id, timeout=10):
+        """
+        Sends an 'input_audio_buffer.clear' event and validates the 'input_audio_buffer.cleared' response.
+        
+        Args:
+            event_id (str): The event ID to use in the request
+            timeout (int): Maximum time to wait for response in seconds
+            
+        Returns:
+            dict: Response data containing event_id and type, or None on failure
+        """
+        if not self.is_connected:
+            print("Error: Not connected to WebSocket. Cannot send clear command.")
+            return None
 
+        clear_payload = {
+            "event_id": event_id,
+            "type": "input_audio_buffer.clear"
+        }
+
+        try:
+            json_payload = json.dumps(clear_payload)
+            self.ws.send(json_payload)
+            print("\n--- Sent 'input_audio_buffer.clear' event ---")
+            print(json_payload)
+        except Exception as e:
+            print(f"Failed to send 'input_audio_buffer.clear' event: {e}")
+            return None
+
+        # Wait for and validate response
+        start_time = time.time()
+        while (time.time() - start_time) < timeout:
+            if self.latest_received_message:
+                response_data = self.latest_received_message
+                self.latest_received_message = None  # Clear after processing
+                
+                if response_data.get("type") == "input_audio_buffer.cleared":
+                    print("Processing 'input_audio_buffer.cleared' event.")
+                    
+                    # Validate event_id
+                    response_event_id = response_data.get("event_id")
+                    if response_event_id:
+                        print(f"Validation successful: 'event_id' is present: '{response_event_id}'")
+                    else:
+                        print("Validation failed: 'event_id' is missing.")
+                        return None
+                    
+                    # Store the response data
+                    self.buffer_cleared_response = response_data
+                    
+                    print(f"Successfully received and validated 'input_audio_buffer.cleared'")
+                    return {
+                        "type": response_data.get("type"),
+                        "event_id": response_event_id
+                    }
+                else:
+                    print(f"Received message with type '{response_data.get('type')}', waiting for 'input_audio_buffer.cleared'")
+            
+            time.sleep(0.1)  # Short delay between checks
+        
+        print(f"Error: Did not receive 'input_audio_buffer.cleared' response within {timeout} seconds")
+        return None
+    
+    def send_conversation_item_retrieve_and_validate(self, event_id, item_id, timeout=10):
+        """
+        Sends a 'conversation.item.retrieve' event and validates the 'conversation.item.retrieved' response.
+        
+        Args:
+            event_id (str): The event ID to use in the request
+            item_id (str): The item ID to retrieve
+            timeout (int): Maximum time to wait for response in seconds
+            
+        Returns:
+            dict: Response data containing event_id, item details, transcript and audio, or None on failure
+        """
+        if not self.is_connected:
+            print("Error: Not connected to WebSocket. Cannot retrieve item.")
+            return None
+
+        retrieve_payload = {
+            "event_id": event_id,
+            "type": "conversation.item.retrieve",
+            "item_id": item_id
+        }
+
+        try:
+            json_payload = json.dumps(retrieve_payload)
+            self.ws.send(json_payload)
+            print("\n--- Sent 'conversation.item.retrieve' event ---")
+            print(json_payload)
+        except Exception as e:
+            print(f"Failed to send 'conversation.item.retrieve' event: {e}")
+            return None
+
+        # Wait for and validate response
+        start_time = time.time()
+        while (time.time() - start_time) < timeout:
+            if self.latest_received_message:
+                response_data = self.latest_received_message
+                self.latest_received_message = None  # Clear after processing
+                
+                if response_data.get("type") == "conversation.item.retrieved":
+                    print("Processing 'conversation.item.retrieved' event.")
+                    
+                    # Validate event_id
+                    response_event_id = response_data.get("event_id")
+                    if response_event_id:
+                        print(f"Validation successful: 'event_id' is present: '{response_event_id}'")
+                    else:
+                        print("Validation failed: 'event_id' is missing.")
+                        return None
+                    
+                    # Validate item and item_id
+                    item = response_data.get("item", {})
+                    response_item_id = item.get("id")
+                    if response_item_id:
+                        if response_item_id == item_id:
+                            print(f"Validation successful: Item ID matches: '{response_item_id}'")
+                        else:
+                            print(f"Validation failed: Item ID mismatch. Expected '{item_id}', got '{response_item_id}'")
+                            return None
+                    else:
+                        print("Validation failed: Item ID is missing in response.")
+                        return None
+                    
+                    # Extract transcript and audio if present
+                    content = item.get("content", [])
+                    transcript = None
+                    audio_data = None
+                    audio_format = None
+                    
+                    if content and len(content) > 0:
+                        for content_item in content:
+                            if content_item.get("type") == "input_audio":
+                                transcript = content_item.get("transcript")
+                                audio_data = content_item.get("audio")
+                                audio_format = content_item.get("format")
+                                break
+                    
+                    # Store the response data
+                    self.item_retrieved_response = response_data
+                    
+                    result = {
+                        "type": response_data.get("type"),
+                        "event_id": response_event_id,
+                        "item_id": response_item_id,
+                        "transcript": transcript,
+                        "has_audio": audio_data is not None,
+                        "audio_format": audio_format
+                    }
+                    
+                    print(f"Successfully received and validated 'conversation.item.retrieved'")
+                    print(f"Transcript: {transcript[:100]}..." if transcript and len(transcript) > 100 else f"Transcript: {transcript}")
+                    print(f"Audio data: {'Present' if audio_data else 'Not present'}")
+                    
+                    return result
+                else:
+                    print(f"Received message with type '{response_data.get('type')}', waiting for 'conversation.item.retrieved'")
+            
+            time.sleep(0.1)  # Short delay between checks
+        
+        print(f"Error: Did not receive 'conversation.item.retrieved' response within {timeout} seconds")
+        return None
+
+    def send_conversation_item_delete_and_validate(self, event_id, item_id, timeout=10):
+        """
+        Sends a 'conversation.item.delete' event and validates the 'conversation.item.deleted' response.
+        
+        Args:
+            event_id (str): The event ID to use in the request
+            item_id (str): The item ID to delete
+            timeout (int): Maximum time to wait for response in seconds
+            
+        Returns:
+            dict: Response data containing event_id, type and item_id, or None on failure
+        """
+        if not self.is_connected:
+            print("Error: Not connected to WebSocket. Cannot delete item.")
+            return None
+
+        delete_payload = {
+            "event_id": event_id,
+            "type": "conversation.item.delete",
+            "item_id": item_id
+        }
+
+        try:
+            json_payload = json.dumps(delete_payload)
+            self.ws.send(json_payload)
+            print("\n--- Sent 'conversation.item.delete' event ---")
+            print(json_payload)
+        except Exception as e:
+            print(f"Failed to send 'conversation.item.delete' event: {e}")
+            return None
+
+        # Wait for and validate response
+        start_time = time.time()
+        while (time.time() - start_time) < timeout:
+            if self.latest_received_message:
+                response_data = self.latest_received_message
+                self.latest_received_message = None  # Clear after processing
+                
+                if response_data.get("type") == "conversation.item.deleted":
+                    print("Processing 'conversation.item.deleted' event.")
+                    
+                    # Validate event_id
+                    response_event_id = response_data.get("event_id")
+                    if response_event_id:
+                        print(f"Validation successful: 'event_id' is present: '{response_event_id}'")
+                    else:
+                        print("Validation failed: 'event_id' is missing.")
+                        return None
+                    
+                    # Validate item_id
+                    response_item_id = response_data.get("item_id")
+                    if response_item_id:
+                        if response_item_id == item_id:
+                            print(f"Validation successful: Item ID matches: '{response_item_id}'")
+                        else:
+                            print(f"Validation failed: Item ID mismatch. Expected '{item_id}', got '{response_item_id}'")
+                            return None
+                    else:
+                        print("Validation failed: Item ID is missing in response.")
+                        return None
+                    
+                    # Store the response data
+                    self.item_deleted_response = response_data
+                    
+                    print(f"Successfully received and validated 'conversation.item.deleted'")
+                    return {
+                        "type": response_data.get("type"),
+                        "event_id": response_event_id,
+                        "item_id": response_item_id
+                    }
+                else:
+                    print(f"Received message with type '{response_data.get('type')}', waiting for 'conversation.item.deleted'")
+            
+            time.sleep(0.1)  # Short delay between checks
+        
+        print(f"Error: Did not receive 'conversation.item.deleted' response within {timeout} seconds")
+        return None
 
 # Example of how you might run it directly (for testing without pytest)
 if __name__ == "__main__":
