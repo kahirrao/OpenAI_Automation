@@ -61,5 +61,16 @@ def test_websocket_session_flow(openai_realtime_client):
         time.sleep(5)  # Give the server a moment to respond, if needed
         print("Latest received message after wait:", getattr(client, "latest_received_message", None))
 
-
+   # Step 5: send input_audio_buffer.commit_and_validate conversation.item.input_audio_transcription.completed event
+    # ...existing code...
+    commit_responses = client.send_audio_buffer_commit_and_validate(event_id, timeout=10)
+    if not commit_responses:
+        print("Latest received message:", getattr(client, "latest_received_message", None))
+        time.sleep(5)  # Give the server a moment to respond, if needed
+        print("Latest received message after wait:", getattr(client, "latest_received_message", None))
+    else:
+        # Store the transcript from the completed transcription event
+        transcript = commit_responses.get("conversation.item.input_audio_transcription.completed", {}).get("transcript")
+        print("Final transcript:",  )
+# ...existing code...
 

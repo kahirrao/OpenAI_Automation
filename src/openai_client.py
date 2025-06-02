@@ -9,6 +9,7 @@ import soundfile as sf
 import io
 import sunau
 import aifc
+import time
 
 import base64
 
@@ -396,6 +397,93 @@ class OpenAIRealtimeClient:
         else:
             print("Error: Expected 'input_audio_buffer.speech_started' response not found or invalid.")
             return False
+
+    def send_audio_buffer_commit_and_validate(self, event_id, expected_item_id=None, timeout=10):
+        """
+        Sends 'input_audio_buffer.commit' and waits for 4 responses:
+        - input_audio_buffer.committed
+        - conversation.item.created
+        - conversation.item.input_audio_transcription.delta
+        - conversation.item.input_audio_transcription.completed
+
+        Stores event_type, event_id, item_id, and transcript for each.
+        Returns a dict with all captured data, or None on failure.
+        """
+        if not self.is_connected:
+            print("Error: Not connected to WebSocket. Cannot send commit.")
+            return None
+
+        commit_payload = {
+            "event_id": event_id,
+            "type": "input_audio_buffer.commit"
+        }
+
+        try:
+            self.ws.send(json.dumps(commit_payload))
+            print("\n--- Sent 'input_audio_buffer.commit' event ---")
+            print(json.dumps(commit_payload, indent=2))
+        except Exception as e:
+            print(f"Failed to send 'input_audio_buffer.commit' event: {e}")
+            return None
+
+        # Prepare to collect responses
+        responses = {
+            "input_audio_buffer.committed": {},
+            "conversation.item.created": {},
+            "conversation.item.input_audio_transcription.delta": {},
+            "conversation.item.input_audio_transcription.completed": {}
+        }
+        received_types = set()
+        transcript = ""
+        start_time = time.time()
+
+        while len(received_types) < 4 and (time.time() - start_time) < timeout:
+            if self.latest_received_message:
+                msg = self.latest_received_message
+                msg_type = msg.get("type")
+                self.latest_received_message = None  # Clear for next
+
+                if msg_type in responses:
+                    print(f"Processing '{msg_type}' event.")
+                    responses[msg_type]["event_id"] = msg.get("event_id")
+                    responses[msg_type]["item_id"] = msg.get("item_id") or msg.get("item", {}).get("id")
+                    responses[msg_type]["type"] = msg_type
+
+                    # For delta/completed, capture transcript
+                    if msg_type == "conversation.item.input_audio_transcription.delta":
+                        delta = msg.get("delta")
+                        if delta:
+                            transcript += delta
+                        responses[msg_type]["transcript"] = transcript
+                        print(f"Delta transcript: {delta}")
+                    elif msg_type == "conversation.item.input_audio_transcription.completed":
+                        responses[msg_type]["transcript"] = msg.get("transcript")
+                        print(f"Final transcript: {msg.get('transcript')}")
+                    elif msg_type == "conversation.item.created":
+                        # transcript may be null here
+                        content = msg.get("item", {}).get("content", [])
+                        if content and isinstance(content, list):
+                            responses[msg_type]["transcript"] = content[0].get("transcript")
+                    received_types.add(msg_type)
+                    print(f"Validation successful: '{msg_type}' received with event_id: '{responses[msg_type]['event_id']}', item_id: '{responses[msg_type]['item_id']}'")
+                else:
+                    print(f"Received unhandled message type: {msg_type}")
+
+            else:
+                time.sleep(0.1)  # Wait briefly for next message
+
+        if len(received_types) < 4:
+            print("Error: Did not receive all expected commit responses in time.")
+            return None
+
+        # Store for later use
+        self.commit_response_data = responses
+        print("\n--- Commit Response Summary ---")
+        for k, v in responses.items():
+            print(f"{k}: {v}")
+
+        return responses
+
 
 # Example of how you might run it directly (for testing without pytest)
 if __name__ == "__main__":
