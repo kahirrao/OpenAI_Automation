@@ -61,16 +61,54 @@ def test_websocket_session_flow(openai_realtime_client):
         time.sleep(5)  # Give the server a moment to respond, if needed
         print("Latest received message after wait:", getattr(client, "latest_received_message", None))
 
-   # Step 5: send input_audio_buffer.commit_and_validate conversation.item.input_audio_transcription.completed event
-    # ...existing code...
-    commit_responses = client.send_audio_buffer_commit_and_validate(event_id, timeout=10)
+#    # Step 5: send input_audio_buffer.commit_and_validate conversation.item.input_audio_transcription.completed event
+#     # ...existing code...
+#     commit_responses = client.send_audio_buffer_commit_and_validate(event_id, timeout=10)
+#     if not commit_responses:
+#         print("Latest received message:", getattr(client, "latest_received_message", None))
+#         time.sleep(5)  # Give the server a moment to respond, if needed
+#         print("Latest received message after wait:", getattr(client, "latest_received_message", None))
+#     else:
+#         # Store the transcript from the completed transcription event
+#         transcript = commit_responses.get("conversation.item.input_audio_transcription.completed", {}).get("transcript")
+#         print("Final transcript:",  )
+# # ...existing code...
+
+#       # Step 6: send response.create and validate the response events
+#     response_data = client.send_response_create_and_validate(event_id, transcript)
+#     if response_data:
+#      audio_base64 = response_data["combined_audio_delta"]
+#     # Do something with audio_base64
+
+        commit_responses = client.send_audio_buffer_commit_and_validate(event_id, timeout=10)
     if not commit_responses:
         print("Latest received message:", getattr(client, "latest_received_message", None))
-        time.sleep(5)  # Give the server a moment to respond, if needed
+        time.sleep(5)
         print("Latest received message after wait:", getattr(client, "latest_received_message", None))
-    else:
-        # Store the transcript from the completed transcription event
-        transcript = commit_responses.get("conversation.item.input_audio_transcription.completed", {}).get("transcript")
-        print("Final transcript:",  )
-# ...existing code...
+        return  # Exit if we don't get commit responses
 
+    # Log the transcript completion
+    transcript = commit_responses.get("conversation.item.input_audio_transcription.completed", {}).get("transcript")
+    if transcript:
+        print(f"\n--- Transcript received successfully ---")
+        print(f"Transcript: {transcript}")
+
+        # Step 6: Send response.create and log each response as it arrives
+        print("\n--- Sending response.create ---")
+        response_data = client.send_response_create_and_validate(event_id, transcript, debug=True)  # Add debug flag
+        
+        if response_data:
+            print("\n--- Response.create Summary ---")
+            print(f"Total delta chunks received: {len(response_data.get('response.audio.delta', []))}")
+            print(f"Combined audio length: {len(response_data.get('combined_audio_delta', ''))}")
+            
+            # Save the audio for further processing
+            audio_base64 = response_data.get("combined_audio_delta")
+            if audio_base64:
+                print("Successfully received complete audio response")
+            else:
+                print("No audio data received in response")
+        else:
+            print("Failed to get complete response data")
+    else:
+        print("No transcript available, skipping response.create")
