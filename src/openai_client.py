@@ -345,32 +345,36 @@ class OpenAIRealtimeClient:
             return False
 
         # Directly attempt to validate the 'latest_received_message'
-        # This assumes your _simulate_server_response (or real on_message)
-        # has already processed and stored the incoming message.
         if self.latest_received_message and self.latest_received_message.get("type") == "input_audio_buffer.speech_started":
             response_data = self.latest_received_message
             self.latest_received_message = None # Clear after processing
 
-            required_keys = ["type", "event_id", "item_id"]
-
-            # 1. Validate that all required keys are present
-            for key in required_keys:
-                if key not in response_data:
-                    print(f"Validation Error: Missing key '{key}' in response.")
-                    return False
-
-            # 2. Validate data types
-            if not isinstance(response_data["type"], str):
-                print(f"Validation Error: 'type' is not a string.")
-                return False
-            if not isinstance(response_data["event_id"], str):
-                print(f"Validation Error: 'event_id' is not a string.")
-                return False
-            if not isinstance(response_data["item_id"], str):
-                print(f"Validation Error: 'item_id' is not a string.")
+            print("Processing 'input_audio_buffer.speech_started' event.")
+            expected_type = "input_audio_buffer.speech_started"
+            # Validate 'type'
+            if response_data.get("type") == expected_type:
+                print(f"Validation successful: 'type' is '{expected_type}'")
+            else:
+                print(f"Validation failed: Expected 'type' to be '{expected_type}', but got '{response_data.get('type')}'")
                 return False
 
-            # 3. Store in global variables
+            # Validate 'event_id'
+            event_id_from_msg = response_data.get("event_id")
+            if event_id_from_msg:
+                print(f"Validation successful: 'event_id' is present: '{event_id_from_msg}'")
+            else:
+                print("Validation failed: 'event_id' is missing for input_audio_buffer.speech_started.")
+                return False
+
+            # Validate 'item_id'
+            item_id_from_msg = response_data.get("item_id")
+            if item_id_from_msg:
+                print(f"Validation successful: 'item_id' is present: '{item_id_from_msg}'")
+            else:
+                print("Validation failed: 'item_id' is missing for input_audio_buffer.speech_started.")
+                return False
+
+            # Store in global variables
             global GLOBAL_RESPONSE_TYPE
             global GLOBAL_RESPONSE_EVENT_ID
             global GLOBAL_RESPONSE_ITEM_ID
@@ -378,8 +382,11 @@ class OpenAIRealtimeClient:
             GLOBAL_RESPONSE_EVENT_ID = response_data["event_id"]
             GLOBAL_RESPONSE_ITEM_ID = response_data["item_id"]
 
-            # 4. Store in class instance (recommended)
+            # Store in class instance
             self.audio_buffer_response_data = response_data
+
+            print(f"\nCurrent self.global_event_id: {self.global_event_id}")
+            print(f"Current self.global_session_id: {self.global_session_id}\n")
 
             print(f"Successfully validated and stored 'input_audio_buffer.speech_started' data.")
             print(f"  GLOBAL_RESPONSE_TYPE: {GLOBAL_RESPONSE_TYPE}")
