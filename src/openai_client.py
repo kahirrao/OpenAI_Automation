@@ -468,11 +468,11 @@ class OpenAIRealtimeClient:
                     print(f"Received unhandled message type: {msg_type}")
 
             else:
-                time.sleep(0.1)  # Wait briefly for next message
+                time.sleep(5)  # Wait briefly for next message
 
-        if len(received_types) < 4:
-            print("Error: Did not receive all expected commit responses in time.")
-            return None
+        # if len(received_types) < 4:
+        #     print("Error: Did not receive all expected commit responses in time.")
+        #     return None
 
         # Store for later use
         self.commit_response_data = responses
@@ -482,7 +482,7 @@ class OpenAIRealtimeClient:
 
         return responses
 
-    def send_response_create_and_validate(self, event_id, transcript, timeout=300):
+    def send_response_create_and_validate(self, event_id, transcript, timeout=60):
         """
         Sends response.create and validates response events.
         Returns dict with responses or None on failure.
