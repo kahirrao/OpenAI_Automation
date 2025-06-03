@@ -80,7 +80,7 @@ def test_websocket_session_flow(openai_realtime_client):
 #      audio_base64 = response_data["combined_audio_delta"]
 #     # Do something with audio_base64
 
-        commit_responses = client.send_audio_buffer_commit_and_validate(event_id, timeout=10)
+    commit_responses = client.send_audio_buffer_commit_and_validate(event_id, timeout=10)
     if not commit_responses:
         print("Latest received message:", getattr(client, "latest_received_message", None))
         time.sleep(5)
