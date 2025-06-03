@@ -93,22 +93,18 @@ def test_websocket_session_flow(openai_realtime_client):
         print(f"\n--- Transcript received successfully ---")
         print(f"Transcript: {transcript}")
 
-        # Step 6: Send response.create and log each response as it arrives
-        print("\n--- Sending response.create ---")
-        response_data = client.send_response_create_and_validate(event_id, transcript, debug=True)  # Add debug flag
+    # Step 6: Send response.create and log each response as it arrives
+    print("\n--- Sending response.create ---")
+    response_data = client.send_response_create_and_validate(event_id, transcript, debug=True)  # Add debug flag
         
-        if response_data:
-            print("\n--- Response.create Summary ---")
-            print(f"Total delta chunks received: {len(response_data.get('response.audio.delta', []))}")
-            print(f"Combined audio length: {len(response_data.get('combined_audio_delta', ''))}")
-            
-            # Save the audio for further processing
-            audio_base64 = response_data.get("combined_audio_delta")
-            if audio_base64:
-                print("Successfully received complete audio response")
-            else:
-                print("No audio data received in response")
+    if response_data:
+        print("\n--- Response.create Summary ---")
+        print(f"Total delta chunks received: {len(response_data.get('response.audio.delta', []))}")
+        print(f"Combined audio length: {len(response_data.get('combined_audio_delta', ''))}")
+                
+                # Save the audio for further processing
+        audio_base64 = response_data.get("combined_audio_delta")
+        if audio_base64:
+            print("Successfully received complete audio response")
         else:
-            print("Failed to get complete response data")
-    else:
-        print("No transcript available, skipping response.create")
+            print("No audio data received in response")
