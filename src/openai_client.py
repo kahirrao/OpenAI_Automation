@@ -483,8 +483,7 @@ class OpenAIRealtimeClient:
     
     def send_audio_buffer_clear_and_validate(self, event_id, timeout=10):
         """
-        Sends an 'input_audio_buffer.clear' event and validates the 'input_audio_buffer.cleared' response.
-        
+        Sends an 'input_audio_buffer.clear' event and validates the 'input_audio_buffer.cleared' response.       
         Args:
             event_id (str): The event ID to use in the request
             timeout (int): Maximum time to wait for response in seconds
