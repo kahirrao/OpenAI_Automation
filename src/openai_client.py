@@ -721,6 +721,91 @@ class OpenAIRealtimeClient:
         
         print(f"Error: Did not receive 'conversation.item.deleted' response within {timeout} seconds")
         return None
+    
+    def send_response_create_and_validate(self, event_id, transcript, timeout=60):
+        """
+        Sends response.create and validates response events.
+        Returns dict with responses or None on failure.
+        """
+        if not self.is_connected:
+            print("Error: WebSocket not connected")
+            return None
+
+        # Construct and send payload
+        payload = {
+        "event_id": event_id,
+        "type": "response.create",
+        "response": {
+            "modalities": ["text", "audio"],
+            "instructions": transcript,
+            "voice": "sage",
+            "output_audio_format": "pcm16",
+            "tool_choice": "none",
+            "temperature": 0.8,
+            "max_output_tokens": 1024	
+        }
+    }
+        print(f"Event ID: {event_id}")
+        print(f"Type: response.create")
+        try:
+            self.ws.send(json.dumps(payload))
+            print("\n=== Sending response.create ===")
+            print(json.dumps(payload, indent=2))
+        except Exception as e:
+            print(f"Failed to send response.create: {e}")
+            return None
+
+        # Track responses
+        responses = {
+            "response.created": None,
+            "response.audio.delta": [],
+            "response.audio.completed": None,
+            "combined_audio_delta": ""
+        }
+        
+        
+        start_time = time.time()
+        complete = False
+        
+        while not complete and (time.time() - start_time) < timeout:
+            if self.latest_received_message:
+                msg = self.latest_received_message
+                msg_type = msg.get("type")
+                self.latest_received_message = None  # Clear for next message
+                
+                print(f"\nReceived message type: {msg_type}")
+                
+                if msg_type == "response.created":
+                    responses["response.created"] = msg
+                    print("✓ Captured response.created")
+                elif msg_type == "response.audio.delta":
+                    delta = msg.get("delta", "")
+                    responses["response.audio.delta"].append(delta)
+                    responses["combined_audio_delta"] += delta
+                    print(f"✓ Captured audio delta chunk ({len(delta)} bytes)")
+                elif msg_type == "response.audio.completed":
+                    responses["response.audio.completed"] = msg
+                    print("✓ Captured response.audio.completed")
+                    complete = True  # Exit after completion
+                    break
+            
+            time.sleep(10)  # Small delay between checks
+
+        # Validate responses
+        if not responses["response.created"]:
+            print("❌ Missing response.created event")
+            return None
+        if not responses["response.audio.completed"]:
+            print("❌ Missing response.audio.completed event")
+            return None
+        if not responses["response.audio.delta"]:
+            print("⚠️ Warning: No audio delta chunks received")
+
+        print("\n=== Response Summary ===")
+        print(f"Total delta chunks: {len(responses['response.audio.delta'])}")
+        print(f"Combined audio size: {len(responses['combined_audio_delta'])} bytes")
+        
+        return responses
 
 # Example of how you might run it directly (for testing without pytest)
 if __name__ == "__main__":
