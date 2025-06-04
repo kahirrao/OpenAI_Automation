@@ -793,13 +793,13 @@ class OpenAIRealtimeClient:
 
         # Validate responses
         if not responses["response.created"]:
-            print("❌ Missing response.created event")
+            print("Missing response.created event")
             return None
         if not responses["response.audio.completed"]:
-            print("❌ Missing response.audio.completed event")
+            print("Missing response.audio.completed event")
             return None
         if not responses["response.audio.delta"]:
-            print("⚠️ Warning: No audio delta chunks received")
+            print("Warning: No audio delta chunks received")
 
         print("\n=== Response Summary ===")
         print(f"Total delta chunks: {len(responses['response.audio.delta'])}")

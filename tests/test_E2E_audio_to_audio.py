@@ -48,7 +48,7 @@ def test_websocket_session_flow(openai_realtime_client):
     print(f"Fetched event_id: {event_id}")
 
     # #Step 3: Generate base64 audio from a file
-    audio_filename = "largest_planet.wav"  # Place your file in data/audio/
+    audio_filename = "largest_planet_on_earth.wav"  # Place your file in data/audio/
     base64_audio = client.get_audio_base64_from_data_folder(audio_filename, save_processed_files=True)
     assert base64_audio is not None, "Failed to generate base64 string from audio file"
     print("Base64 audio string (first 100 chars):", base64_audio[:100])
