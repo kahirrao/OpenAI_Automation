@@ -13,6 +13,8 @@ import time
 
 import base64
 import binascii
+from pathlib import Path
+import wave
 
 # Load environment variables from .env file
 load_dotenv()
@@ -723,173 +725,12 @@ class OpenAIRealtimeClient:
         print(f"Error: Did not receive 'conversation.item.deleted' response within {timeout} seconds")
         return None
     
-    # def save_combined_audio_buffer(self, combined_audio_base64, output_filename=None):
-    #     """
-    #     Decodes combined base64 audio buffer and saves it as a WAV file.
-        
-    #     Args:
-    #         combined_audio_base64 (str): Base64 encoded audio data
-    #         output_filename (str, optional): Filename for the output WAV file.
-    #             If None, generates a timestamped filename.
-                
-    #     Returns:
-    #         str: Path to the saved WAV file or None on failure
-    #     """
-    #     try:
-    #         if not combined_audio_base64:
-    #             print("Error: No audio data to save")
-    #             return None
-                
-    #         # Create data/audio/output directory if it doesn't exist
-    #         project_root = os.getcwd()
-    #         output_dir = os.path.join(project_root, "data", "audio", "output")
-    #         os.makedirs(output_dir, exist_ok=True)
-            
-    #         # Generate filename if not provided
-    #         if not output_filename:
-    #             timestamp = time.strftime("%Y%m%d_%H%M%S")
-    #             output_filename = f"response_audio_{timestamp}.wav"
-            
-    #         # Ensure filename ends with .wav
-    #         if not output_filename.endswith('.wav'):
-    #             output_filename += '.wav'
-                
-    #         output_path = os.path.join(output_dir, output_filename)
-            
-    #         # Decode base64 audio data
-    #         audio_bytes = base64.b64decode(combined_audio_base64)
-            
-    #         # Write bytes to WAV file
-    #         with open(output_path, 'wb') as f:
-    #             f.write(audio_bytes)
-                
-    #         print(f"Successfully saved audio to: {output_path}")
-    #         return output_path
-            
-    #     except Exception as e:
-    #         print(f"Error saving audio file: {str(e)}")
-    #         return None
     
-    
-    def save_combined_audio_buffer(self, combined_audio_base64, output_filename=None):
-        """
-        Decodes combined base64 audio buffer and saves it as a WAV file.
-        
-        Args:
-            combined_audio_base64 (str): Base64 encoded audio data
-            output_filename (str, optional): Filename for the output WAV file.
-                If None, generates a timestamped filename.
-                
-        Returns:
-            str: Path to the saved WAV file or None on failure
-        """
-        try:
-            if not combined_audio_base64:
-                print("Error: No audio data to save")
-                return None
-            
-            print(f"Saving audio data of length: {len(combined_audio_base64)} bytes")
-                
-            # Create data/audio/output directory if it doesn't exist
-            project_root = os.getcwd()
-            output_dir = os.path.join(project_root, "data", "audio", "output")
-            os.makedirs(output_dir, exist_ok=True)
-            
-            # Generate filename if not provided
-            if not output_filename:
-                timestamp = time.strftime("%Y%m%d_%H%M%S")
-                output_filename = f"response_audio_{timestamp}.wav"
-            
-            # Ensure filename ends with .wav
-            if not output_filename.endswith('.wav'):
-                output_filename += '.wav'
-                
-            output_path = os.path.join(output_dir, output_filename)
-            
-            # Decode base64 audio data
-            try:
-                # Clean the base64 string - remove any non-base64 characters
-                valid_base64_chars = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=")
-                cleaned_base64 = ''.join(c for c in combined_audio_base64 if c in valid_base64_chars)
-                
-                # Add padding if needed
-                padding = len(cleaned_base64) % 4
-                if padding:
-                    cleaned_base64 += "=" * (4 - padding)
-                    
-                # Try decoding with padding
-                audio_bytes = base64.b64decode(cleaned_base64)
-                
-                print(f"Decoded audio size: {len(audio_bytes)} bytes")
-                
-                # For PCM16 format, we need to add a WAV header if it's not already there
-                if not audio_bytes.startswith(b'RIFF'):
-                    print("Adding WAV header to raw PCM data")
-                    
-                    # Parameters for 16-bit PCM WAV
-                    channels = 1  # Mono
-                    sample_rate = 44100  # 44.1kHz - Changed from 24000 to fix pronunciation
-                    bits_per_sample = 16
-                    
-                    # Calculate file size
-                    data_size = len(audio_bytes)
-                    file_size = data_size + 36  # 36 bytes for header minus 8 bytes for "RIFF" and size
-                    
-                    # Create WAV header
-                    header = bytearray()
-                    # RIFF header
-                    header.extend(b'RIFF')
-                    header.extend(file_size.to_bytes(4, byteorder='little'))
-                    header.extend(b'WAVE')
-                    # Format subchunk
-                    header.extend(b'fmt ')
-                    header.extend((16).to_bytes(4, byteorder='little'))  # Subchunk size (16 for PCM)
-                    header.extend((1).to_bytes(2, byteorder='little'))   # Audio format (1 for PCM)
-                    header.extend(channels.to_bytes(2, byteorder='little'))
-                    header.extend(sample_rate.to_bytes(4, byteorder='little'))
-                    byte_rate = sample_rate * channels * bits_per_sample // 8
-                    header.extend(byte_rate.to_bytes(4, byteorder='little'))
-                    block_align = channels * bits_per_sample // 8
-                    header.extend(block_align.to_bytes(2, byteorder='little'))
-                    header.extend(bits_per_sample.to_bytes(2, byteorder='little'))
-                    # Data subchunk
-                    header.extend(b'data')
-                    header.extend(data_size.to_bytes(4, byteorder='little'))
-                    
-                    # Combine header and audio data
-                    audio_bytes = bytes(header) + audio_bytes
-                
-                # Write bytes to WAV file
-                with open(output_path, 'wb') as f:
-                    f.write(audio_bytes)
-                    
-                print(f"Successfully saved audio to: {output_path}")
-                return output_path
-                
-            except binascii.Error as be:
-                print(f"Base64 decoding error: {str(be)}")
-                print(f"First 100 chars of base64 string: {combined_audio_base64[:100]}...")
-                print(f"Last 100 chars of base64 string: {combined_audio_base64[-100:] if len(combined_audio_base64) > 100 else combined_audio_base64}")
-                return None
-                
-        except Exception as e:
-            print(f"Error saving audio file: {str(e)}")
-            return None
-
-
-    def send_response_create_and_validate(self, event_id, transcript, timeout=60, save_audio=True):
+    def send_response_create_and_validate(self, event_id, transcript, timeout=60):
         """
         Sends response.create and validates response events.
-        Combines audio deltas and optionally saves as WAV file.
-        
-        Args:
-            event_id (str): Event ID for the request
-            transcript (str): Instructions/prompt for the response
-            timeout (int): Maximum time to wait for complete response
-            save_audio (bool): Whether to save the audio file
-            
-        Returns:
-            dict: Response data including file path if saved
+        Returns dict with responses or None on failure.
+        Also saves audio as a .wav file in ./data/response/
         """
         if not self.is_connected:
             print("Error: WebSocket not connected")
@@ -906,150 +747,89 @@ class OpenAIRealtimeClient:
                 "output_audio_format": "pcm16",
                 "tool_choice": "none",
                 "temperature": 0.8,
-                "max_output_tokens": 1024	
+                "max_output_tokens": 1024
             }
         }
-        print(f"Event ID: {event_id}")
-        print(f"Type: response.create")
+
         try:
             self.ws.send(json.dumps(payload))
             print("\n=== Sending response.create ===")
             print(json.dumps(payload, indent=2))
         except Exception as e:
-            print(f"Failed to send response.create: {e}")
+            print(f"❌ Failed to send response.create: {e}")
             return None
 
         # Track responses
         responses = {
             "response.created": None,
-            "response.audio.delta": [],  # Store raw delta objects
+            "response.audio.delta": [],
             "response.audio.completed": None,
-            "combined_audio_delta": "",  # String for concatenation
-            "response_id": None,
-            "item_id": None,
-            "saved_audio_path": None,
-            "debug_messages": []  # Add a list to store all received message types
+            "combined_audio_bytes": b""
         }
-        
+
         start_time = time.time()
         complete = False
-        
+
         while not complete and (time.time() - start_time) < timeout:
             if self.latest_received_message:
                 msg = self.latest_received_message
                 msg_type = msg.get("type")
-                self.latest_received_message = None  # Clear for next message
-                
-                # Add to debug messages
-                responses["debug_messages"].append(f"{msg_type} at {time.time() - start_time:.2f}s")
+                self.latest_received_message = None
+
                 print(f"\nReceived message type: {msg_type}")
-                
+
                 if msg_type == "response.created":
                     responses["response.created"] = msg
-                    responses["response_id"] = msg.get("response_id")
-                    responses["item_id"] = msg.get("item_id")
-                    print(f"✓ Captured response.created - ID: {responses['response_id']}")
+                    print("✓ Captured response.created")
+
                 elif msg_type == "response.audio.delta":
-                    # Store the entire delta message
-                    responses["response.audio.delta"].append(msg)
-                    # Extract and store the delta content
-                    delta = msg.get("delta", "")
-                    print(f"✓ Captured audio delta - chunk {len(responses['response.audio.delta'])} ({len(delta)} bytes)")
+                    delta_b64 = msg.get("delta", "")
+                    if delta_b64:
+                        try:
+                            delta_bytes = base64.b64decode(delta_b64)
+                            responses["response.audio.delta"].append(delta_bytes)
+                            responses["combined_audio_bytes"] += delta_bytes
+                            print(f"✓ Captured audio delta chunk ({len(delta_bytes)} bytes)")
+                        except Exception as e:
+                            print(f"❌ Failed to decode delta chunk: {e}")
+
                 elif msg_type == "response.audio.completed":
                     responses["response.audio.completed"] = msg
                     print("✓ Captured response.audio.completed")
-                    complete = True  # Exit after completion
+                    complete = True
                     break
-                elif msg_type == "error":
-                    # Handle error messages
-                    error_code = msg.get("code", "unknown")
-                    error_message = msg.get("message", "No error message provided")
-                    print(f"❌ Received error: {error_code} - {error_message}")
-                    responses["error"] = msg
-                    # Don't break immediately, give it a chance to recover
-            
-            time.sleep(0.1)  # Small delay between checks
 
-        # Partial response is better than no response
-        has_partial_response = responses["response.created"] is not None
-        
-        # Validate responses but continue even if some are missing
-        if not responses["response.created"]:
-            print("❌ Missing response.created event")
-        if not responses["response.audio.completed"]:
-            print("❌ Missing response.audio.completed event")
-            # If we have at least some deltas, we can still try to save them
-            if responses["response.audio.delta"]:
-                print("⚠️ Proceeding with partial audio (no completion event)")
-                has_partial_response = True
-        if not responses["response.audio.delta"]:
-            print("⚠️ Warning: No audio delta chunks received")
-        
-        # Process and save audio if we have delta chunks
-        if save_audio and responses["response.audio.delta"]:
-            try:
-                # Properly ordered deltas for reconstruction
-                ordered_deltas = []
-                
-                # Extract and order the deltas correctly
-                for delta_msg in responses["response.audio.delta"]:
-                    delta_content = delta_msg.get("delta", "")
-                    content_index = delta_msg.get("content_index", 0)
-                    output_index = delta_msg.get("output_index", 0)
-                    
-                    # Store with ordering information
-                    ordered_deltas.append({
-                        "content_index": content_index,
-                        "output_index": output_index,
-                        "delta": delta_content
-                    })
-                
-                # Sort by content_index and output_index to ensure correct order
-                ordered_deltas.sort(key=lambda x: (x["content_index"], x["output_index"]))
-                
-                # Combine deltas in correct order
-                combined_audio = ""
-                for delta_item in ordered_deltas:
-                    combined_audio += delta_item["delta"]
-                
-                # Set a filename based on response ID
-                response_id = responses["response_id"] or f"partial_{int(time.time())}"
-                filename = f"response_{response_id}.wav"
-                
-                # Save the properly ordered audio
-                responses["saved_audio_path"] = self.save_combined_audio_buffer(
-                    combined_audio, 
-                    output_filename=filename
-                )
-                
-                # Add the combined audio to the response object
-                responses["combined_audio"] = combined_audio
-                
-            except Exception as e:
-                print(f"❌ Error processing audio deltas: {str(e)}")
-                traceback.print_exc()
-        
+            time.sleep(0.1)
+
+
         print("\n=== Response Summary ===")
-        print(f"Request completed in {time.time() - start_time:.2f} seconds")
         print(f"Total delta chunks: {len(responses['response.audio.delta'])}")
-        
-        if responses["saved_audio_path"]:
-            print(f"Audio saved to: {responses['saved_audio_path']}")
-        
-        # Print debug message history
-        print("\n=== Message Timeline ===")
-        for msg in responses["debug_messages"]:
-            print(f"- {msg}")
-        
-        # Return responses even if incomplete
-        if has_partial_response:
-            return responses
+        print(f"Combined audio size: {len(responses['combined_audio_bytes'])} bytes")
+
+        # Save to WAV file if audio is available
+        if responses["combined_audio_bytes"]:
+            # Create ./data/response folder if not exists
+            root_dir = Path.cwd()
+            response_dir = root_dir / "data" / "response"
+            response_dir.mkdir(parents=True, exist_ok=True)
+
+            # Sanitize filename
+            output_path = response_dir / f"response_{int(time.time())}.wav"
+
+            try:
+                print(f"Saving WAV to: {output_path}")
+                with wave.open(str(output_path), 'wb') as wav_file:
+                    wav_file.setnchannels(1)  # mono
+                    wav_file.setsampwidth(2)  # 16-bit PCM
+                    wav_file.setframerate(24000)  # 24kHz
+                    wav_file.writeframes(responses["combined_audio_bytes"])
+                print(f"✅ WAV audio saved successfully at: {output_path.resolve()}")
+            except Exception as e:
+                print(f"❌ Failed to write WAV file: {e}")
         else:
-            if "error" in responses:
-                print(f"❌ Failed due to API error: {responses['error'].get('message', 'Unknown error')}")
-            else:
-                print("❌ Failed to receive any valid response data")
-            return None
+            print("⚠️ No audio to write to WAV file")
+
+        return responses
 
 # Example of how you might run it directly (for testing without pytest)
 if __name__ == "__main__":

@@ -77,7 +77,6 @@ def test_websocket_session_flow(openai_realtime_client):
         print("Final transcript:", transcript)
         item_id = commit_responses.get("conversation.item.input_audio_transcription.completed", {}).get("item_id")
         print("Item ID:", item_id)
-# ...existing code...
 
 
    # Step 6: Send audio buffer clear event and validate response
