@@ -48,7 +48,7 @@ def test_websocket_session_flow(openai_realtime_client):
     print(f"Fetched event_id: {event_id}")
 
     # #Step 3: Generate base64 audio from a file
-    audio_filename = "largest_planet_on_earth.wav"  # Place your file in data/audio/
+    audio_filename = "capital of France.wav"  # Place your file in data/audio/
     base64_audio = client.get_audio_base64_from_data_folder(audio_filename, save_processed_files=True)
     assert base64_audio is not None, "Failed to generate base64 string from audio file"
     print("Base64 audio string (first 100 chars):", base64_audio[:100])
@@ -79,16 +79,25 @@ def test_websocket_session_flow(openai_realtime_client):
     # Step 6: Send response.create and log each response as it arrives
     print("\n--- Sending response.create ---")
     create_response_event_id = f"event_{int(time.time())}"
-    response_data = client.send_response_create_and_validate(create_response_event_id, transcript)  # Add debug flag
-        
-    if response_data:
-        print("\n--- Response.create Summary ---")
-        print(f"Total delta chunks received: {len(response_data.get('response.audio.delta', []))}")
-        print(f"Combined audio length: {len(response_data.get('combined_audio_delta', ''))}")
-                
-                # Save the audio for further processing
-        audio_base64 = response_data.get("combined_audio_delta")
-        if audio_base64:
-            print("Successfully received complete audio response")
-        else:
-            print("No audio data received in response")
+    
+    # Call with save_audio=True to automatically save the file
+    response_data = client.send_response_create_and_validate(
+        create_response_event_id, 
+        transcript, 
+        timeout=60,
+        save_audio=True
+    )
+    
+    assert response_data, "Failed to receive response data"
+    
+    print("\n--- Response.create Summary ---")
+    print(f"Total delta chunks received: {len(response_data.get('response.audio.delta', []))}")
+    print(f"Combined audio size: {len(response_data.get('combined_audio_delta', ''))} bytes")
+    
+    # Check if audio was saved successfully
+    saved_audio_path = response_data.get("saved_audio_path")
+    if saved_audio_path:
+        print(f"Audio successfully saved to: {saved_audio_path}")
+        assert os.path.exists(saved_audio_path), f"Saved audio file not found at {saved_audio_path}"
+    else:
+        print("Warning: Audio was not saved")
