@@ -48,7 +48,7 @@ def test_websocket_session_flow(openai_realtime_client):
     print(f"Fetched event_id: {event_id}")
 
     # #Step 3: Generate base64 audio from a file
-    audio_filename = "answer_5_20250324_192921_pcm16.wav"  # Place your file in data/audio/
+    audio_filename = "largest_planet_on_earth.wav"  # Place your file in data/audio/
     base64_audio = client.get_audio_base64_from_data_folder(audio_filename, save_processed_files=True)
     assert base64_audio is not None, "Failed to generate base64 string from audio file"
     print("Base64 audio string (first 100 chars):", base64_audio[:100])
@@ -80,7 +80,7 @@ def test_websocket_session_flow(openai_realtime_client):
 #      audio_base64 = response_data["combined_audio_delta"]
 #     # Do something with audio_base64
 
-        commit_responses = client.send_audio_buffer_commit_and_validate(event_id, timeout=10)
+    commit_responses = client.send_audio_buffer_commit_and_validate(event_id, timeout=10)
     if not commit_responses:
         print("Latest received message:", getattr(client, "latest_received_message", None))
         time.sleep(5)
@@ -95,16 +95,19 @@ def test_websocket_session_flow(openai_realtime_client):
 
     # Step 6: Send response.create and log each response as it arrives
     print("\n--- Sending response.create ---")
-    response_data = client.send_response_create_and_validate(event_id, transcript, debug=True)  # Add debug flag
-        
+    response_data = client.send_response_create_and_validate(event_id, transcript)
+
     if response_data:
         print("\n--- Response.create Summary ---")
         print(f"Total delta chunks received: {len(response_data.get('response.audio.delta', []))}")
-        print(f"Combined audio length: {len(response_data.get('combined_audio_delta', ''))}")
-                
-                # Save the audio for further processing
-        audio_base64 = response_data.get("combined_audio_delta")
-        if audio_base64:
-            print("Successfully received complete audio response")
+        print(f"Combined audio length: {len(response_data.get('combined_audio_bytes', b''))} bytes")
+        
+        # Check if audio was properly received and saved
+        if response_data.get("combined_audio_bytes"):
+            print("🎧 Successfully received and saved complete audio response as WAV file.")
         else:
-            print("No audio data received in response")
+            print("⚠️ No audio data received in response.")
+    else:
+        print("❌ Failed to process response.create event.")
+
+    

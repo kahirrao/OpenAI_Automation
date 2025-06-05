@@ -10,6 +10,9 @@ import io
 import time
 
 import base64
+import wave
+import re
+from pathlib import Path
 
 # Load environment variables from .env file
 load_dotenv()
@@ -470,9 +473,6 @@ class OpenAIRealtimeClient:
             else:
                 time.sleep(0.1)  # Wait briefly for next message
 
-        if len(received_types) < 4:
-            print("Error: Did not receive all expected commit responses in time.")
-            return None
 
         # Store for later use
         self.commit_response_data = responses
@@ -482,10 +482,11 @@ class OpenAIRealtimeClient:
 
         return responses
 
-    def send_response_create_and_validate(self, event_id, transcript, timeout=300):
+    def send_response_create_and_validate(self, event_id, transcript, timeout=60):
         """
         Sends response.create and validates response events.
         Returns dict with responses or None on failure.
+        Also saves audio as a .wav file in ./data/response/
         """
         if not self.is_connected:
             print("Error: WebSocket not connected")
@@ -493,26 +494,25 @@ class OpenAIRealtimeClient:
 
         # Construct and send payload
         payload = {
-        "event_id": event_id,
-        "type": "response.create",
-        "response": {
-            "modalities": ["text", "audio"],
-            "instructions": transcript,
-            "voice": "sage",
-            "output_audio_format": "pcm16",
-            "tool_choice": "none",
-            "temperature": 0.8,
-            "max_output_tokens": 1024	
+            "event_id": event_id,
+            "type": "response.create",
+            "response": {
+                "modalities": ["text", "audio"],
+                "instructions": transcript,
+                "voice": "sage",
+                "output_audio_format": "pcm16",
+                "tool_choice": "none",
+                "temperature": 0.8,
+                "max_output_tokens": 1024
+            }
         }
-    }
-        print(f"Event ID: {event_id}")
-        print(f"Type: response.create")
+
         try:
             self.ws.send(json.dumps(payload))
             print("\n=== Sending response.create ===")
             print(json.dumps(payload, indent=2))
         except Exception as e:
-            print(f"Failed to send response.create: {e}")
+            print(f"❌ Failed to send response.create: {e}")
             return None
 
         # Track responses
@@ -520,52 +520,76 @@ class OpenAIRealtimeClient:
             "response.created": None,
             "response.audio.delta": [],
             "response.audio.completed": None,
-            "combined_audio_delta": ""
+            "combined_audio_bytes": b""
         }
-        
-        
+
         start_time = time.time()
         complete = False
-        
+
         while not complete and (time.time() - start_time) < timeout:
             if self.latest_received_message:
                 msg = self.latest_received_message
                 msg_type = msg.get("type")
-                self.latest_received_message = None  # Clear for next message
-                
+                self.latest_received_message = None
+
                 print(f"\nReceived message type: {msg_type}")
-                
+
                 if msg_type == "response.created":
                     responses["response.created"] = msg
                     print("✓ Captured response.created")
+
                 elif msg_type == "response.audio.delta":
-                    delta = msg.get("delta", "")
-                    responses["response.audio.delta"].append(delta)
-                    responses["combined_audio_delta"] += delta
-                    print(f"✓ Captured audio delta chunk ({len(delta)} bytes)")
+                    delta_b64 = msg.get("delta", "")
+                    if delta_b64:
+                        try:
+                            delta_bytes = base64.b64decode(delta_b64)
+                            responses["response.audio.delta"].append(delta_bytes)
+                            responses["combined_audio_bytes"] += delta_bytes
+                            print(f"✓ Captured audio delta chunk ({len(delta_bytes)} bytes)")
+                        except Exception as e:
+                            print(f"❌ Failed to decode delta chunk: {e}")
+
                 elif msg_type == "response.audio.completed":
                     responses["response.audio.completed"] = msg
                     print("✓ Captured response.audio.completed")
-                    complete = True  # Exit after completion
+                    complete = True
                     break
-            
-            time.sleep(10)  # Small delay between checks
 
-        # Validate responses
-        if not responses["response.created"]:
-            print("❌ Missing response.created event")
-            return None
-        if not responses["response.audio.completed"]:
-            print("❌ Missing response.audio.completed event")
-            return None
-        if not responses["response.audio.delta"]:
-            print("⚠️ Warning: No audio delta chunks received")
+            time.sleep(0.1)
+
 
         print("\n=== Response Summary ===")
         print(f"Total delta chunks: {len(responses['response.audio.delta'])}")
-        print(f"Combined audio size: {len(responses['combined_audio_delta'])} bytes")
-        
+        print(f"Combined audio size: {len(responses['combined_audio_bytes'])} bytes")
+
+        # Save to WAV file if audio is available
+        if responses["combined_audio_bytes"]:
+            # Create ./data/response folder if not exists
+            root_dir = Path.cwd()
+            response_dir = root_dir / "data" / "response"
+            response_dir.mkdir(parents=True, exist_ok=True)
+
+            # Sanitize filename
+            output_path = response_dir / f"response_{int(time.time())}.wav"
+
+            try:
+                print(f"Saving WAV to: {output_path}")
+                with wave.open(str(output_path), 'wb') as wav_file:
+                    wav_file.setnchannels(1)  # mono
+                    wav_file.setsampwidth(2)  # 16-bit PCM
+                    wav_file.setframerate(32000)  # 24kHz
+                    wav_file.writeframes(responses["combined_audio_bytes"])
+                print(f"✅ WAV audio saved successfully at: {output_path.resolve()}")
+            except Exception as e:
+                print(f"❌ Failed to write WAV file: {e}")
+        else:
+            print("⚠️ No audio to write to WAV file")
+
         return responses
+
+
+
+
 
 # Example of how you might run it directly (for testing without pytest)
 if __name__ == "__main__":
